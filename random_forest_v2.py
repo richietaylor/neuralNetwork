@@ -133,6 +133,16 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225])
 ])
 
+def scale_bounding_boxes(bboxes, original_widths, original_heights, resized_width=224, resized_height=224):
+    x_scale = original_widths / resized_width
+    y_scale = original_heights / resized_height
+    scaled_bboxes = bboxes.copy()
+    scaled_bboxes[:, 0] = bboxes[:, 0] * x_scale  # xmin
+    scaled_bboxes[:, 1] = bboxes[:, 1] * y_scale  # ymin
+    scaled_bboxes[:, 2] = bboxes[:, 2] * x_scale  # xmax
+    scaled_bboxes[:, 3] = bboxes[:, 3] * y_scale  # ymax
+    return scaled_bboxes
+
 def resize_bounding_boxes(bboxes, original_width, original_height, new_width=224, new_height=224):
     x_scale = new_width / original_width
     y_scale = new_height / original_height
@@ -159,20 +169,28 @@ class CustomDataset(Dataset):
         records = self.image_data.get_group(image_id)
         image_path = records.iloc[0]['image_path']
         image = Image.open(str(image_path)).convert("RGB")
-        original_width, original_height = image.size
+        original_width, original_height = image.size  # Get original image size
+
         bboxes = records[['xmin', 'ymin', 'xmax', 'ymax']].values.astype(np.float32)
         labels = records['class_id'].values.astype(np.int64)
+
+        # Resize bounding boxes to match the resized image
         bboxes = resize_bounding_boxes(bboxes, original_width, original_height, 224, 224)
+
         if self.transforms:
             image = self.transforms(image)
-        return image, bboxes, labels
+
+        # Return original sizes as well
+        return image, bboxes, labels, (original_width, original_height)
+
 
 #Processing for each batch.
 def custom_collate_fn(batch):
     images = torch.stack([item[0] for item in batch], dim=0)
     bboxes_batch = [item[1] for item in batch]
     labels_batch = [item[2] for item in batch]
-    return images, bboxes_batch, labels_batch
+    original_sizes = [item[3] for item in batch]  # Collect original sizes
+    return images, bboxes_batch, labels_batch, original_sizes
 
 # Create datasets and dataloaders
 train_dataset = CustomDataset(dataframe=X_train, transforms=transform)
@@ -205,24 +223,30 @@ feature_extractor.to(device)
 # Function to extract features using Resnet
 def extract_features(data_loader):
     print("EXTRACTING FEATURES")
-    features_list, labels_list, bboxes_list = [], [], []
-    for images, bboxes_batch, labels_batch in tqdm(data_loader):
+    features_list, labels_list, bboxes_list, original_sizes_list = [], [], [], []
+    for images, bboxes_batch, labels_batch, original_sizes_batch in tqdm(data_loader):
         images = images.to(device)
         with torch.no_grad():
-            # Extract features (everything but last layer of resnet)
+            # Extract features (everything but last layer of ResNet)
             features = feature_extractor(images)
-            # Flatten for usage in random forest.
-            features = features.view(features.size(0), -1)  # Flatten to [batch_size, 512 (Resnet18) or 2048 (Resnet50)]
+            # Flatten for usage in random forest
+            features = features.view(features.size(0), -1)  # [batch_size, feature_dim]
         for i in range(len(features)):
             num_objects = len(labels_batch[i])
             features_list.extend([features[i].cpu().numpy()] * num_objects)
             labels_list.extend(labels_batch[i])
             bboxes_list.extend(bboxes_batch[i])
-    return np.array(features_list), np.array(labels_list), np.array(bboxes_list)
+            original_sizes_list.extend([original_sizes_batch[i]] * num_objects)
+    return np.array(features_list), np.array(labels_list), np.array(bboxes_list), np.array(original_sizes_list)
 
 # Train models and save features
-X_train_features, y_train_labels, y_train_bboxes = extract_features(train_loader)
-X_val_features, y_val_labels, y_val_bboxes = extract_features(val_loader)
+X_train_features, y_train_labels, y_train_bboxes, y_train_sizes = extract_features(train_loader)
+X_val_features, y_val_labels, y_val_bboxes, y_val_sizes = extract_features(val_loader)
+
+# Reshape original sizes arrays for broadcasting
+y_val_widths = y_val_sizes[:, 0]
+y_val_heights = y_val_sizes[:, 1]
+
 
 
 
@@ -236,40 +260,67 @@ print("PREDICTIONS")
 y_val_pred_labels = clf.predict(X_val_features)
 y_val_pred_bboxes = reg.predict(X_val_features)
 
+# Scale up predicted bounding boxes
+y_val_pred_bboxes_scaled = scale_bounding_boxes(y_val_pred_bboxes, y_val_widths, y_val_heights)
+
+# Scale up ground truth bounding boxes (if needed)
+y_val_bboxes_scaled = scale_bounding_boxes(y_val_bboxes, y_val_widths, y_val_heights)
+
 # Calculate and print accuracy and MSE
 class_accuracy = accuracy_score(y_val_labels, y_val_pred_labels)
-bbox_mse = mean_squared_error(y_val_bboxes, y_val_pred_bboxes)
+bbox_mse = mean_squared_error(y_val_bboxes_scaled, y_val_pred_bboxes_scaled)
 print(f'Validation Classification Accuracy: {class_accuracy:.4f}')
 print(f'Validation Bounding Box MSE: {bbox_mse:.4f}')
 
 # Save predictions to CSV
 print("SAVING TO CSV")
 predictions = []
-for i, (images, bboxes_batch, labels_batch) in enumerate(tqdm(val_loader)):
+start_idx = 0  # Initialize a start index for tracking
+for images, bboxes_batch, labels_batch, original_sizes_batch in tqdm(val_loader):
     images = images.to(device)
     with torch.no_grad():
-        #Extract features (everything but last layer of resnet)
         features = feature_extractor(images)
-        #Flatten so it can be used for random forest
         features = features.view(features.size(0), -1).cpu().numpy()
-    predicted_labels = clf.predict(features)
-    confidences = clf.predict_proba(features).max(axis=1)
-    predicted_bboxes = reg.predict(features)
+    
     for idx in range(len(images)):
-        image_id = X_val.iloc[i * len(images) + idx]['Image_ID']
-        class_label = list(class_mapper.keys())[list(class_mapper.values()).index(predicted_labels[idx])]
-        for j in range(len(bboxes_batch[idx])):
-            confidence = confidences[idx]
-            ymin, xmin, ymax, xmax = predicted_bboxes[idx]
+        image_id = val_dataset.image_ids[start_idx + idx]
+        num_objects = len(bboxes_batch[idx])
+        
+        # Repeat the features for each object
+        features_repeated = np.tile(features[idx], (num_objects, 1))
+        
+        # Predict labels and bounding boxes
+        predicted_labels = clf.predict(features_repeated)
+        confidences = clf.predict_proba(features_repeated).max(axis=1)
+        predicted_bboxes = reg.predict(features_repeated)
+        
+        # Scale up the predicted bounding boxes
+        original_width, original_height = original_sizes_batch[idx]
+        predicted_bboxes_scaled = scale_bounding_boxes(
+            predicted_bboxes,
+            np.array([original_width] * num_objects),
+            np.array([original_height] * num_objects)
+        )
+        
+        # Map predicted labels to class names
+        class_labels = [
+            list(class_mapper.keys())[list(class_mapper.values()).index(pl)]
+            for pl in predicted_labels
+        ]
+        
+        for j in range(num_objects):
+            confidence = confidences[j]
+            xmin, ymin, xmax, ymax = predicted_bboxes_scaled[j]
             predictions.append({
                 "Image_ID": image_id,
-                "class": class_label,
+                "class": class_labels[j],
                 "confidence": confidence,
                 "ymin": ymin,
                 "xmin": xmin,
                 "ymax": ymax,
                 "xmax": xmax
             })
+    start_idx += len(images)  # Update the start index
 
 predictions_df = pd.DataFrame(predictions)
 predictions_df.to_csv("predictions.csv", index=False)
