@@ -97,26 +97,30 @@ def get_image_path(row):
     else:
         raise FileNotFoundError(f"Image {image_id} not found in train, val, or test directories.")
 
+#add image_path column to training
 train['image_path'] = train.apply(get_image_path, axis=1)
+#add image_path column to testing
 test['image_path'] = test.apply(get_image_path, axis=1)
 
 # Map string classes to integer IDs. Encoding.
 class_mapper = {x: y for x, y in zip(sorted(train['class'].unique().tolist()), range(train['class'].nunique()))}
 train['class_id'] = train['class'].map(class_mapper)
 
-# Drop the 'confidence' column if not needed
+# Drop the 'confidence' column if not needed, which it isnt since the confidence is always 1.
 train = train.drop(columns=['confidence'])
 
 # Split data into training and validation sets
 print("SPLITTING INTO TRAIN AND VALIDATION")
+#drop all duplicate records if they exist.
 train_unique_imgs_df = train.drop_duplicates(subset=['Image_ID'], ignore_index=True)
+#Split into train and validation sets.
 X_train_ids, X_val_ids = train_test_split(
     train_unique_imgs_df['Image_ID'],
     test_size=0.25,
     stratify=train_unique_imgs_df['class'],
     random_state=42
 )
-
+#Setting the training dataframes.
 X_train = train[train.Image_ID.isin(X_train_ids)]
 X_val = train[train.Image_ID.isin(X_val_ids)]
 
@@ -163,6 +167,7 @@ class CustomDataset(Dataset):
             image = self.transforms(image)
         return image, bboxes, labels
 
+#Processing for each batch.
 def custom_collate_fn(batch):
     images = torch.stack([item[0] for item in batch], dim=0)
     bboxes_batch = [item[1] for item in batch]
@@ -186,21 +191,28 @@ val_loader = DataLoader(val_dataset, batch_size=16, shuffle=False, num_workers=0
 
 # Load pre-trained ResNet18 and define feature extractor
 print("LOADING RESNET PRETRAINED MODEL")
-resnet18 = models.resnet18(pretrained=True)
-resnet18.eval()
-feature_extractor = nn.Sequential(*list(resnet18.children())[:-1])  # Remove the final classification layer
+# resnet18 = models.resnet18(pretrained=True)
+# resnet18.eval()
+resnet50 = models.resnet50(pretrained=True)
+resnet50.eval()
+
+#Remove the final classification layer, leaving us with image features.
+#feature_extractor = nn.Sequential(*list(resnet18.children())[:-1]) 
+feature_extractor = nn.Sequential(*list(resnet50.children())[:-1]) 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 feature_extractor.to(device)
 
-# Function to extract features
+# Function to extract features using Resnet
 def extract_features(data_loader):
     print("EXTRACTING FEATURES")
     features_list, labels_list, bboxes_list = [], [], []
     for images, bboxes_batch, labels_batch in tqdm(data_loader):
         images = images.to(device)
         with torch.no_grad():
+            # Extract features (everything but last layer of resnet)
             features = feature_extractor(images)
-            features = features.view(features.size(0), -1)  # Flatten to [batch_size, 512]
+            # Flatten for usage in random forest.
+            features = features.view(features.size(0), -1)  # Flatten to [batch_size, 512 (Resnet18) or 2048 (Resnet50)]
         for i in range(len(features)):
             num_objects = len(labels_batch[i])
             features_list.extend([features[i].cpu().numpy()] * num_objects)
@@ -236,7 +248,9 @@ predictions = []
 for i, (images, bboxes_batch, labels_batch) in enumerate(tqdm(val_loader)):
     images = images.to(device)
     with torch.no_grad():
+        #Extract features (everything but last layer of resnet)
         features = feature_extractor(images)
+        #Flatten so it can be used for random forest
         features = features.view(features.size(0), -1).cpu().numpy()
     predicted_labels = clf.predict(features)
     confidences = clf.predict_proba(features).max(axis=1)
