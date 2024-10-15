@@ -132,7 +132,7 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406],  # Normalize as per ResNet requirements
                          std=[0.229, 0.224, 0.225])
 ])
-
+# Scale up
 def scale_bounding_boxes(bboxes, original_widths, original_heights, resized_width=224, resized_height=224):
     x_scale = original_widths / resized_width
     y_scale = original_heights / resized_height
@@ -142,7 +142,7 @@ def scale_bounding_boxes(bboxes, original_widths, original_heights, resized_widt
     scaled_bboxes[:, 2] = bboxes[:, 2] * x_scale  # xmax
     scaled_bboxes[:, 3] = bboxes[:, 3] * y_scale  # ymax
     return scaled_bboxes
-
+#Scale down
 def resize_bounding_boxes(bboxes, original_width, original_height, new_width=224, new_height=224):
     x_scale = new_width / original_width
     y_scale = new_height / original_height
