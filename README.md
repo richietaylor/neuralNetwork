@@ -2,6 +2,7 @@
 
 Dataset taken from [here](https://zindi.africa/competitions/ghana-crop-disease-detection-challenge), you can also find the image dataset here if you want to reproduce the results for yourself
 
+Our Assignment report is AI Assignment Report.pdf
 
 ## To Run for yourself: 
 
