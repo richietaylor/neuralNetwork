@@ -18,7 +18,7 @@ Dataset taken from [here](https://zindi.africa/competitions/ghana-crop-disease-d
  (5) Run **CNN.ipynb** to run the model that was run in our report, otherwise you can also run of the baseline models **Old_Models.ipynb** (the old resnet model is also at the bottom of Data_Processing.ipynb).
 
 
-Our random forest baseline is in the Random Forest branch if you want to check that out.
+Our random forest baseline is in the Random Forest branch if you want to check that out. Additioanlly ``/vizualizations/`` has some output examples.
 
 
 **Our Final predictions are stored in Final_Predictions (epoch 20).csv**
