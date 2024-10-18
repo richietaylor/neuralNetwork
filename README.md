@@ -11,11 +11,17 @@ Dataset taken from [here](https://zindi.africa/competitions/ghana-crop-disease-d
 
 ```pip install -r requirements.txt```
 
- (3) Run Data_Processing (you will need to change the file path to suit your own environment)
+ (3) Run the **Data_Processing.ipynb** notebook (you will need to change the file path to suit your own environment)
 
- (4) (Optional) Run compress_images.py if you are short on memory and processing power. Run it to reduce the size of the images by a lot without much performance and quality loss.
+ (4) (Optional) Run **compress_images.py** if you are short on memory and processing power. Run it to reduce the size of the images by a lot without much performance and quality loss.
 
- (5) Run CNN.ipynb to run the model that was run in our report, otherwise you can also run of the baseline models in ResNet.ipynb or Old_Models.ipynb
+ (5) Run **CNN.ipynb** to run the model that was run in our report, otherwise you can also run of the baseline models **Old_Models.ipynb** (the old resnet model is also at the bottom of Data_Processing.ipynb).
+
+
+Our random forest baseline is in the Random Forest branch if you want to check that out.
+
+
+**Our Final predictions are stored in Final_Predictions (epoch 20).csv**
 
 
  Thank you for using our tool! :heart: 
