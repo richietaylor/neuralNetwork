@@ -1,3 +1,21 @@
 # Neural Network Assignment
 
-Dataset taken from https://zindi.africa/competitions/ghana-crop-disease-detection-challenge
+Dataset taken from [here](https://zindi.africa/competitions/ghana-crop-disease-detection-challenge), you can also find the image dataset here if you want to reproduce the results for yourself
+
+
+## To Run for yourself: 
+
+ (1) Download the image dataset [here](https://zindi.africa/competitions/ghana-crop-disease-detection-challenge).
+
+ (2) Install requirements:
+
+```pip install -r requirements.txt```
+
+ (3) Run Data_Processing (you will need to change the file path to suit your own environment)
+
+ (4) (Optional) Run compress_images.py if you are short on memory and processing power. Run it to reduce the size of the images by a lot without much performance and quality loss.
+
+ (5) Run CNN.ipynb to run the model that was run in our report, otherwise you can also run of the baseline models in ResNet.ipynb or Old_Models.ipynb
+
+
+ Thank you for using our tool! :heart: 
